@@ -327,7 +327,15 @@ class NixServer(object):
             JSON dictionary mapping store paths to True if they exist
             on the server, and False otherwise.
             """
-            paths = request.get_json()
+            content_type = request.headers.get("content-type")
+            if content_type == "application/json":
+                data = decode_str(request.data)
+            elif content_type == "application/x-gzip":
+                data = decode_str(gzip.decompress(request.data))
+            else:
+                msg = "Unsupported content type '{}'".format(content_type)
+                raise ClientError(msg)
+            paths = json.loads(data)
             if not isinstance(paths, list):
                 raise ClientError("Expected a list, but got a {}"
                                   .format(type(paths).__name__))

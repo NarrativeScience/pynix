@@ -217,8 +217,8 @@ class NixCacheClient(object):
             # No point in making a request if we don't have any paths.
             return {}
         url = "{}/query-paths".format(self._endpoint)
-        data = json.dumps(paths)
-        headers = {"Content-Type": "application/json"}
+        data = gzip.compress(json.dumps(paths))
+        headers = {"Content-Type": "application/gzip"}
         logging.debug("Asking the server about {} paths.".format(len(paths)))
         try:
             response = self._connect().get(url, headers=headers, data=data)
