@@ -7,6 +7,7 @@ import sys
 from pynix import __version__
 from pynix.derivation import Derivation
 from pynix.binary_cache.client import NixCacheClient
+from pynix.utils import instantiate
 
 def get_args():
     """Parse command-line arguments."""
@@ -26,11 +27,17 @@ def get_args():
                         dest="format", help="Raw derivation format.")
     p_show.add_argument("-p", "--pretty", action="store_true", default=False,
                         help="Pretty-print.")
-    p_show.add_argument("-A", "--attribute", help="Attribute to show.")
+    p_show.add_argument("-a", "--attribute", help="Attribute to show.")
     p_show.add_argument("-e", "--env-vars", nargs="+",
                         help="Environmant variable to show.")
     p_show.add_argument("-o", "--output",
                         help="Show the path of the given output.")
+    p_show.add_argument("-i", "--instantiate", action="store_true",
+                        default=False,
+                        help="Argument is a nix file rather than a derivation")
+    p_show.add_argument("-A", "--nix-attr", action="append",
+                        help="Attribute of nix file to evaluate, if using "
+                             "--instantiate")
 
     # 'diff' command
     p_diff = subparsers.add_parser("diff", help="Diff two derivations.")
@@ -60,7 +67,12 @@ def main():
     """Main entry point."""
     args = get_args()
     if args.command == "show":
-        path = args.derivation_path
+        if args.instantiate is True:
+            # Get the path by instantiating a file
+            paths = instantiate(args.derivation_path, attributes=args.nix_attr)
+            path = paths[0]
+        else:
+            path = args.derivation_path
         if "!" in path:
             path = path.split("!")[0]
         deriv = Derivation.parse_derivation_file(path)
