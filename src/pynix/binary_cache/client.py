@@ -69,7 +69,10 @@ class NixCacheClient(object):
         #: Server running servenix (string).
         self._endpoint = endpoint
         #: Base name of server (for caching).
-        self._endpoint_server = urlparse(endpoint).netloc
+        if endpoint is not None:
+            self._endpoint_server = urlparse(endpoint).netloc
+        else:
+            self._endpoint_server = None
         #: If true, no actual paths will be sent/fetched/built.
         self._dry_run = dry_run
         #: If not none, will use to authenticate with the repo.
@@ -797,11 +800,11 @@ class NixCacheClient(object):
         existing = {}
         # Run the first time with no on_server argument.
         needed, need_fetch = needed_to_build_multi(derivs_outs, existing=existing)
-        if len(needed) > 0:
-            logging.info("{} were not in the local nix store. Querying {} to "
-                         "see which paths it has..."
-                         .format(tell_size(needed, "needed object"),
-                                 self._endpoint))
+        logging.info("{} were not in the local nix store."
+                     .format(tell_size(needed, "needed object")))
+        if len(needed) > 0 and self._endpoint is not None:
+            logging.info("Querying {} to see which paths it has..."
+                         .format(self._endpoint))
             on_server = {}
             # Query the server for missing paths. Start by trying a
             # multi-query because it's faster; if the server doesn't
