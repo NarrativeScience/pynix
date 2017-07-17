@@ -59,7 +59,8 @@ def strip_output(command, input=None, hide_stderr=False):
 if "NIX_BIN_PATH" in os.environ:
     NIX_BIN_PATH = os.environ["NIX_BIN_PATH"]
 else:
-    NIX_BIN_PATH = dirname(realpath(strip_output("type -p nix-env")))
+    NIX_BIN_PATH = dirname(realpath(strip_output(
+        ["/bin/bash", "-c", "type -p nix-env"])))
 assert exists(join(NIX_BIN_PATH, "nix-build")), \
     "Couldn't determine a valid nix binary path. Set NIX_BIN_PATH"
 # The store path can be given explicitly, or else it will be
