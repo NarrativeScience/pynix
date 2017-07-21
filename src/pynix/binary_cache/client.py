@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from os.path import (join, exists, isdir, isfile, expanduser, basename,
-                     getmtime)
+                     getmtime, splitext)
 import re
 import shutil
 from subprocess import (Popen, PIPE, check_output, CalledProcessError,
@@ -65,7 +65,7 @@ class NixCacheClient(object):
     """Wraps some state for sending store objects."""
     def __init__(self, endpoint, dry_run=False, username=None,
                  password=None, cache_location=None, cache_enabled=True,
-                 max_jobs=cpu_count()):
+                 max_jobs=cpu_count(), ignore_drvs=True):
         #: Server running servenix (string).
         self._endpoint = endpoint
         #: Base name of server (for caching).
@@ -111,6 +111,8 @@ class NixCacheClient(object):
         self._db_con = sqlite3.connect(NIX_DB_PATH)
         # Caches nix path references.
         self._reference_cache = PathReferenceCache(db_con=self._db_con)
+        # True if we should ignore .drv files when sending
+        self._ignore_drvs = ignore_drvs
 
     def _update_narinfo_cache(self, narinfo, write_to_disk):
         """Write a narinfo entry to the cache.
@@ -689,6 +691,8 @@ class NixCacheClient(object):
             query = con.execute("SELECT path FROM ValidPaths")
             for result in query.fetchall():
                 path = result[0]
+                if splitext(basename(path))[1] == ".drv" and self._ignore_drvs:
+                    continue
                 if any(ig.match(path) for ig in ignore):
                     logging.debug("Path {} matches an ignore regex, skipping"
                                   .format(path))
@@ -873,6 +877,10 @@ def _get_args():
     daemon = subparsers.add_parser("daemon",
                                    help="Run as daemon, periodically "
                                         "syncing store.")
+    for p in (sync, daemon):
+        p.add_argument("--no-ignore-drvs", action="store_false",
+                       dest="ignore_drvs", help="Don't skip .drv files")
+        p.set_defaults(ignore_drvs=True)
     fetch = subparsers.add_parser("fetch",
                                    help="Fetch objects from a nix server.")
     fetch.add_argument("paths", nargs="+", help="Paths to fetch.")
@@ -939,7 +947,8 @@ def main():
         logging.getLogger(name).setLevel(logging.WARNING)
     max_jobs = 1 if getattr(args, "one", False) else args.max_jobs
     client = NixCacheClient(endpoint=args.endpoint, dry_run=args.dry_run,
-                            username=args.username, max_jobs=max_jobs)
+                            username=args.username, max_jobs=max_jobs,
+                            ignore_drvs=args.ignore_drvs)
     try:
         if args.command == "send":
             client.send_objects(args.paths)
