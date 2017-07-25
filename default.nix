@@ -28,7 +28,7 @@ pythonPackages.buildPythonPackage rec {
     pkgs.pv
     pkgs.which
     flask
-    requests2
+    requests
     ipdb
     six
     datadiff

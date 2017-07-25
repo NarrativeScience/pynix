@@ -194,6 +194,7 @@ class NarInfo(object):
         # Once extracted, convert it into a nix export object and import.
         export = self.nar_to_export(data)
         imported_path = export.import_to_store()
+        return imported_path
 
     @classmethod
     def from_dict(cls, dictionary):

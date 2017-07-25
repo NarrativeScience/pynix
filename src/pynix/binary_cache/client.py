@@ -332,7 +332,7 @@ class NixCacheClient(object):
                 to_send.add(path)
         return to_send
 
-    def _connect(self, first_time=True):
+    def _connect(self, first_time=True, attempts=5):
         """Connect to a binary cache.
 
         Serves two purposes: verifying that the client can
@@ -346,6 +346,9 @@ class NixCacheClient(object):
         :param first_time: Whether this is the first time it's being
             called, so that we can tailor the error messaging.
         :type first_time: ``bool``
+
+        :param attempts: How many more times to try connecting
+        :type  attempts: ``int``
 
         :return: Either None or a Session object.
         :rtype: ``NoneType`` or :py:class:`requests.sessions.Session`
@@ -400,26 +403,34 @@ class NixCacheClient(object):
             self._auth = session.auth = auth
             self._session = session
             return self._session
-        elif resp.status_code == 401 and sys.stdin.isatty():
-            # Authorization failed. Give the user a chance to set new auth.
-            msg = "\033[31mAuthorization failed!\033[0m\n" \
-                  if not first_time else ""
-            msg += "Please enter \033[1musername\033[0m"
-            msg += " for {}".format(self._endpoint) if first_time else ""
-            if self._username is not None:
-                msg += " (default '{}'): ".format(self._username)
+        elif resp.status_code == 401:
+            if attempts > 0:
+                time.sleep(2)
+                logging.info("Invalid response. Retrying...")
+                return self._connect(first_time=False, attempts=attempts-1)
+            elif sys.stdin.isatty():
+                # Authorization failed. Give the user a chance to set new auth.
+                msg = "\033[31mAuthorization failed!\033[0m\n" \
+                      if not first_time else ""
+                msg += "Please enter \033[1musername\033[0m"
+                msg += " for {}".format(self._endpoint) if first_time else ""
+                if self._username is not None:
+                    msg += " (default '{}'): ".format(self._username)
+                else:
+                    msg += ": "
+                try:
+                    username = six.moves.input(msg).strip()
+                    if username != "":
+                        self._username = username
+                    os.environ.pop("NIX_BINARY_CACHE_PASSWORD", None)
+                    self._password = None
+                except (KeyboardInterrupt, EOFError):
+                    logging.info("\nBye!")
+                    sys.exit()
+                return self._connect(first_time=False)
             else:
-                msg += ": "
-            try:
-                username = six.moves.input(msg)
-                if username != "":
-                    self._username = username
-                os.environ.pop("NIX_BINARY_CACHE_PASSWORD", None)
-                self._password = None
-            except (KeyboardInterrupt, EOFError):
-                logging.info("\nBye!")
-                sys.exit()
-            return self._connect(first_time=False)
+                raise CouldNotConnect(self._endpoint, resp.status_code,
+                                      resp.content)
         else:
             raise CouldNotConnect(self._endpoint, resp.status_code,
                                   resp.content)
@@ -791,13 +802,16 @@ class NixCacheClient(object):
             logging.info("{} paths remain to be fetched.".format(remaining))
         return remaining
 
-    def _fetch_single(self, path):
+    def _fetch_single(self, path, retries_remaining=3):
         """Fetch a single path."""
         # Return if the path has already been fetched, or already exists.
         if self._cancelled is True:
             raise RuntimeError("Cancelled (" + path + ")")
         if self._have_fetched(path):
             return
+        elif retries_remaining < 0:
+            logging.error("Too many retries for path {}!".format(path))
+            raise ObjectNotBuilt(path)
         # First ensure that all referenced paths have been fetched.
         for ref in self.get_references(path):
             self._finish_fetching(ref)
@@ -810,7 +824,12 @@ class NixCacheClient(object):
                      .format(basename(path), self._endpoint))
         response = self._request(url)
 
-        narinfo.import_to_store(response.content)
+        imported_path = narinfo.import_to_store(response.content)
+        if not is_path_in_store(imported_path):
+            logging.warn("Couldn't import fetched object for " + path)
+            # delete the path before retrying
+            return self._fetch_single(
+                path, retries_remaining=(retries_remaining - 1))
         self._register_as_fetched(path)
 
     def _register_as_fetched(self, path):
@@ -1045,17 +1064,6 @@ class NixCacheClient(object):
             logging.error("  " + failed.path)
         raise NixBuildError()
 
-    def _verify(self, derivs_to_outputs):
-        """Given a derivation-output mapping, verify all paths."""
-        logging.info("Verifying that we successfully created {}"
-                     .format(tell_size(derivs_to_outputs, "store path")))
-        for deriv, outputs in derivs_to_outputs.items():
-            for output in outputs:
-                path = deriv.output_path(output)
-                logging.debug("Verifying path {}".format(basename(path)))
-                if not is_path_in_store(path, db_con=self._db_con):
-                    raise ObjectNotBuilt(path)
-
     def _create_symlinks(self, derivs_to_outputs, use_deriv_name):
         """Create symlinks to all built derivations.
 
@@ -1289,7 +1297,7 @@ def main():
     # Hide noisy logging of some external libs
     for name in ("requests", "urllib", "urllib2", "urllib3"):
         logging.getLogger(name).setLevel(logging.WARNING)
-    max_jobs = 1 if getattr(args, "one", True) else args.max_jobs
+    max_jobs = 1 if getattr(args, "one", False) else args.max_jobs
     client = NixCacheClient(endpoint=args.endpoint, dry_run=args.dry_run,
                             username=args.username, max_jobs=max_jobs,
                             compression_type=args.compression_type,
