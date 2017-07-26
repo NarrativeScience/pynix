@@ -828,6 +828,7 @@ class NixCacheClient(object):
         if not is_path_in_store(imported_path):
             logging.warn("Couldn't import fetched object for " + path)
             # delete the path before retrying
+            call(nix_cmd("nix-store", ["--delete", path]))
             return self._fetch_single(
                 path, retries_remaining=(retries_remaining - 1))
         self._register_as_fetched(path)
