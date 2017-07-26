@@ -1064,6 +1064,17 @@ class NixCacheClient(object):
             logging.error("  " + failed.path)
         raise NixBuildError()
 
+    def _verify(self, derivs_to_outputs):
+        """Given a derivation-output mapping, verify all paths."""
+        logging.info("Verifying that we successfully created {}"
+                     .format(tell_size(derivs_to_outputs, "store path")))
+        for deriv, outputs in derivs_to_outputs.items():
+            for output in outputs:
+                path = deriv.output_path(output)
+                logging.debug("Verifying path {}".format(basename(path)))
+                if not is_path_in_store(path, db_con=self._db_con):
+                    raise ObjectNotBuilt(path)
+
     def _create_symlinks(self, derivs_to_outputs, use_deriv_name):
         """Create symlinks to all built derivations.
 
