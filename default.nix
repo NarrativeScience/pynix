@@ -20,7 +20,8 @@ in
 
 pythonPackages.buildPythonPackage rec {
   name = "pynix-${version}";
-  buildInputs = with pythonPackages; [ipython nose mock];
+  buildInputs = [pythonPackages.ipython];
+  checkInputs = with pythonPackages; [nose mock];
   propagatedBuildInputs = with pythonPackages; [
     pkgs.coreutils
     pkgs.gzip
@@ -39,6 +40,7 @@ pythonPackages.buildPythonPackage rec {
     pythonPackages.backports_lzma
     pythonPackages.repoze_lru
   ]);
+  doCheck = false;
   checkPhase = ''
     # HACK: try to detect this failure case at runtime
     if ! nix-store -q --hash ${pkgs.nix} >/dev/null 2>&1; then
